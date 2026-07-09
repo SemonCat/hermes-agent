@@ -1338,6 +1338,51 @@ class TestBuildAnthropicKwargs:
         )
         assert kwargs["model"] == "claude-sonnet-4-20250514"
 
+    def test_third_party_endpoint_gets_session_header(self):
+        kwargs = build_anthropic_kwargs(
+            model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "Hi"}],
+            tools=None,
+            max_tokens=4096,
+            reasoning_config=None,
+            base_url="http://10.53.2.110:20129/anthropic",
+            session_id=" 20260709_024144_a937da59 ",
+        )
+
+        assert kwargs["extra_headers"]["x-session-id"] == "20260709_024144_a937da59"
+        assert "prompt_cache_key" not in kwargs.get("extra_body", {})
+
+    def test_anthropic_transport_passes_session_header_for_third_party_endpoint(self):
+        transport = get_transport("anthropic_messages")
+
+        kwargs = transport.build_kwargs(
+            model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "Hi"}],
+            tools=None,
+            max_tokens=4096,
+            reasoning_config=None,
+            base_url="https://proxy.example.com/anthropic",
+            session_id="sess-123",
+        )
+
+        assert kwargs["extra_headers"]["x-session-id"] == "sess-123"
+
+    def test_native_anthropic_does_not_get_session_header(self):
+        kwargs = build_anthropic_kwargs(
+            model="claude-opus-4-6",
+            messages=[{"role": "user", "content": "Hi"}],
+            tools=None,
+            max_tokens=4096,
+            reasoning_config=None,
+            base_url="https://api.anthropic.com",
+            fast_mode=True,
+            session_id="sess-123",
+        )
+
+        headers = kwargs["extra_headers"]
+        assert "fast-mode-2026-02-01" in headers["anthropic-beta"]
+        assert "x-session-id" not in headers
+
     def test_fast_mode_oauth_default_omits_context_1m_beta(self):
         """Default OAuth fast-mode avoids context-1m for subscriptions without it."""
         kwargs = build_anthropic_kwargs(
@@ -1373,6 +1418,37 @@ class TestBuildAnthropicKwargs:
         assert "oauth-2025-04-20" in betas
         assert "claude-code-20250219" in betas
         assert "interleaved-thinking-2025-05-14" in betas
+
+    def test_build_api_kwargs_passes_session_id_to_anthropic_transport(self):
+        from agent.chat_completion_helpers import build_api_kwargs
+
+        captured = {}
+
+        class DummyTransport:
+            def build_kwargs(self, **kwargs):
+                captured.update(kwargs)
+                return {"ok": True}
+
+        agent = SimpleNamespace(
+            api_mode="anthropic_messages",
+            tools=[],
+            model="claude-opus-4-8",
+            max_tokens=4096,
+            reasoning_config=None,
+            _is_anthropic_oauth=False,
+            request_overrides={},
+            session_id="20260709_024144_a937da59",
+            context_compressor=None,
+            _ephemeral_max_output_tokens=None,
+            _oauth_1m_beta_disabled=False,
+            _anthropic_base_url="http://10.53.2.110:20129/anthropic",
+            _get_transport=lambda: DummyTransport(),
+            _prepare_anthropic_messages_for_api=lambda messages: messages,
+            _anthropic_preserve_dots=lambda: False,
+        )
+
+        assert build_api_kwargs(agent, [{"role": "user", "content": "Hi"}]) == {"ok": True}
+        assert captured["session_id"] == "20260709_024144_a937da59"
 
     def test_reasoning_config_maps_to_manual_thinking_for_pre_4_6_models(self):
         kwargs = build_anthropic_kwargs(
