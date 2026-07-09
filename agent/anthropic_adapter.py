@@ -2452,6 +2452,7 @@ def build_anthropic_kwargs(
     base_url: str | None = None,
     fast_mode: bool = False,
     drop_context_1m_beta: bool = False,
+    session_id: str | None = None,
 ) -> Dict[str, Any]:
     """Build kwargs for anthropic.messages.create().
 
@@ -2490,6 +2491,10 @@ def build_anthropic_kwargs(
     fast-mode beta header for ~2.5x faster output throughput on Opus 4.6.
     Currently only supported on native Anthropic endpoints (not third-party
     compatible ones).
+
+    When *session_id* is provided for a third-party Anthropic-compatible
+    endpoint, sends it as ``x-session-id`` so gateways can preserve per-session
+    cache affinity without guessing from request body text.
     """
     system, anthropic_messages = convert_messages_to_anthropic(
         messages, base_url=base_url, model=model
@@ -2679,6 +2684,10 @@ def build_anthropic_kwargs(
             betas.extend(_OAUTH_ONLY_BETAS)
         betas.append(_FAST_MODE_BETA)
         kwargs["extra_headers"] = {"anthropic-beta": ",".join(betas)}
+
+    session_header = str(session_id).strip() if session_id else ""
+    if session_header and _is_third_party_anthropic_endpoint(base_url):
+        kwargs.setdefault("extra_headers", {})["x-session-id"] = session_header
 
     return kwargs
 
